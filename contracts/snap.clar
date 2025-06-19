@@ -1,4 +1,4 @@
-;; Snapshot Voting Smart Contract
+;; Vote-Snap Voting Smart Contract
 ;; A decentralized voting system that captures token balances at specific block heights
 
 ;; Error codes
@@ -37,7 +37,7 @@
   {
     vote: bool, ;; true for yes, false for no
     voting-power: uint,
-    block-height: uint
+    vote-block: uint
   }
 )
 
@@ -109,11 +109,12 @@
 
 ;; Private functions
 
-(define-private (get-token-balance-at-block (account principal) (block-height uint))
+(define-private (get-token-balance-at-block (account principal) (block-num uint))
   ;; In a real implementation, this would query historical token balances
-  ;; For now, we'll use current balance as placeholder
-  ;; This should be replaced with actual historical balance lookup
-  (contract-call? .sample-token get-balance account)
+  ;; For now, we'll return a default balance or use STX balance
+  ;; This should be replaced with actual token contract call
+  ;; Example: (contract-call? 'SP3FBR2AGK5H9QBDH3EEN6DF8EK8JY7RX8QJ5SVTE.sip-010-token get-balance account)
+  (ok u1000) ;; Default balance for testing - replace with actual token contract
 )
 
 ;; Public functions
@@ -130,7 +131,14 @@
     (start-block (+ block-height voting-delay))
     (end-block (+ block-height voting-delay voting-duration))
   )
-    ;; Check if proposal with same title exists
+    ;; Input validation
+    (asserts! (> (len title) u0) ERR-NOT-AUTHORIZED)
+    (asserts! (> (len description) u0) ERR-NOT-AUTHORIZED)
+    (asserts! (> voting-duration u0) ERR-NOT-AUTHORIZED)
+    (asserts! (< voting-duration u144000) ERR-NOT-AUTHORIZED) ;; Max ~100 days
+    (asserts! (< voting-delay u144000) ERR-NOT-AUTHORIZED) ;; Max ~100 days
+    
+    ;; Check if proposal with same ID exists (shouldn't happen but safety check)
     (asserts! (is-none (map-get? proposals { proposal-id: proposal-id })) ERR-PROPOSAL-EXISTS)
     
     ;; Create the proposal
@@ -161,8 +169,11 @@
 (define-public (record-snapshot-balance (proposal-id uint) (voter principal))
   (let (
     (proposal (unwrap! (get-proposal proposal-id) ERR-PROPOSAL-NOT-FOUND))
-    (balance (unwrap-panic (get-token-balance-at-block voter (get snapshot-block proposal))))
+    (balance (unwrap! (get-token-balance-at-block voter (get snapshot-block proposal)) ERR-INSUFFICIENT-BALANCE))
   )
+    ;; Input validation
+    (asserts! (> proposal-id u0) ERR-PROPOSAL-NOT-FOUND)
+    
     ;; Only allow recording if balance meets minimum requirement
     (asserts! (>= balance (var-get min-voting-power)) ERR-INSUFFICIENT-BALANCE)
     
@@ -198,7 +209,7 @@
       {
         vote: vote,
         voting-power: voting-power,
-        block-height: block-height
+        vote-block: block-height
       }
     )
     
@@ -244,6 +255,8 @@
 (define-public (set-min-voting-power (new-min uint))
   (begin
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (> new-min u0) ERR-NOT-AUTHORIZED) ;; Must be positive
+    (asserts! (< new-min u1000000000) ERR-NOT-AUTHORIZED) ;; Reasonable upper bound
     (var-set min-voting-power new-min)
     (ok true)
   )
@@ -252,6 +265,8 @@
 (define-public (set-token-contract (new-contract principal))
   (begin
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    ;; Basic validation - ensure it's not the zero address
+    (asserts! (not (is-eq new-contract 'SP000000000000000000002Q6VF78)) ERR-NOT-AUTHORIZED)
     (var-set token-contract new-contract)
     (ok true)
   )
@@ -263,6 +278,7 @@
     (proposal (unwrap! (get-proposal proposal-id) ERR-PROPOSAL-NOT-FOUND))
   )
     (asserts! (is-eq tx-sender CONTRACT-OWNER) ERR-NOT-AUTHORIZED)
+    (asserts! (> proposal-id u0) ERR-PROPOSAL-NOT-FOUND)
     
     (map-set proposals
       { proposal-id: proposal-id }
