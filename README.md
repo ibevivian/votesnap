@@ -1,4 +1,4 @@
-# Snapshot Voting System
+# Votesnap Voting System
 
 A decentralized voting system built on Stacks blockchain using Clarity smart contracts. This system captures token balances at specific block heights to ensure fair and transparent governance decisions.
 
